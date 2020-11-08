@@ -180,41 +180,41 @@ class PublicHolidaysController extends AbstractController
                 $maxFreeDaysInARow = 0;
                 $currentFreeDaysInARow = 0;
 
-                for ($monthNumber = 1; $monthNumber < 13; $monthNumber++) {
-                    for ($dayNumber = 1; $dayNumber < 32; $dayNumber++) {
-                        $content = [];
-                        $response = $this->client->request(
-                            'GET',
-                            "https://kayaposoft.com/enrico/json/v2.0/?action=isWorkDay&date={$dayNumber}-{$monthNumber}-{$formData['year']}&country={$countryCode}"
-                        );
+                // for ($monthNumber = 1; $monthNumber < 13; $monthNumber++) {
+                //     for ($dayNumber = 1; $dayNumber < 32; $dayNumber++) {
+                //         $content = [];
+                //         $response = $this->client->request(
+                //             'GET',
+                //             "https://kayaposoft.com/enrico/json/v2.0/?action=isWorkDay&date={$dayNumber}-{$monthNumber}-{$formData['year']}&country={$countryCode}"
+                //         );
 
-                        try {
-                            $content = $response->toArray();
-                        } catch (ClientExceptionInterface $e) {
-                        } catch (DecodingExceptionInterface $e) {
-                        } catch (RedirectionExceptionInterface $e) {
-                        } catch (ServerExceptionInterface $e) {
-                        } catch (TransportExceptionInterface $e) {
-                        }
+                //         try {
+                //             $content = $response->toArray();
+                //         } catch (ClientExceptionInterface $e) {
+                //         } catch (DecodingExceptionInterface $e) {
+                //         } catch (RedirectionExceptionInterface $e) {
+                //         } catch (ServerExceptionInterface $e) {
+                //         } catch (TransportExceptionInterface $e) {
+                //         }
 
-                        // Check if dayNumber is valid
-                        if (isset($content['error'])) {
-                            break;
-                        }
+                //         // Check if dayNumber is valid
+                //         if (isset($content['error'])) {
+                //             break;
+                //         }
 
-                        if ($content['isWorkDay'] == true) {
+                //         if ($content['isWorkDay'] == true) {
 
-                            if ($maxFreeDaysInARow < $currentFreeDaysInARow) {
-                                $maxFreeDaysInARow = $currentFreeDaysInARow;
-                            }
+                //             if ($maxFreeDaysInARow < $currentFreeDaysInARow) {
+                //                 $maxFreeDaysInARow = $currentFreeDaysInARow;
+                //             }
 
-                            $currentFreeDaysInARow = 0;
-                        } else {
-                            $currentFreeDaysInARow++;
-                        }
+                //             $currentFreeDaysInARow = 0;
+                //         } else {
+                //             $currentFreeDaysInARow++;
+                //         }
 
-                    }
-                }
+                //     }
+                // }
 
                 $publicHolilday->setMaxFreeDaysInARow($maxFreeDaysInARow);
 
