@@ -179,7 +179,8 @@ class PublicHolidaysController extends AbstractController
                 ///////////////////////////////////////////////////////
                 // Count max free days in a row in a year
                 ///////////////////////////////////////////////////////
-                $maxFreeDaysInARow = $makeApiRequest->getMaxFreeDaysInARowInAYear($this->client, $formData['year'], $countryCode);
+                $maxFreeDaysInARow = -1;
+                // $maxFreeDaysInARow = $makeApiRequest->getMaxFreeDaysInARowInAYear($this->client, $formData['year'], $countryCode);
 
                 $publicHoliday->setMaxFreeDaysInARow($maxFreeDaysInARow);
 
