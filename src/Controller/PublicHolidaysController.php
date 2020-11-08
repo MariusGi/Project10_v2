@@ -3,20 +3,20 @@
 namespace App\Controller;
 
 use App\Entity\Country;
+use App\Entity\DailyCountryChecksOnRequest;
 use App\Entity\PublicHoliday;
 use App\Form\PublicHolidayType;
 use App\Repository\CountryRepository;
+use App\Repository\DailyCountryChecksOnRequestRepository;
 use App\Repository\PublicHolidayRepository;
+use DateTime;
+use Exception;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Annotation\Route;
-use Symfony\Contracts\HttpClient\Exception\ClientExceptionInterface;
-use Symfony\Contracts\HttpClient\Exception\DecodingExceptionInterface;
-use Symfony\Contracts\HttpClient\Exception\RedirectionExceptionInterface;
-use Symfony\Contracts\HttpClient\Exception\ServerExceptionInterface;
-use Symfony\Contracts\HttpClient\Exception\TransportExceptionInterface;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
+use App\Api\MakeApiRequest;
 
 class PublicHolidaysController extends AbstractController
 {
@@ -32,39 +32,23 @@ class PublicHolidaysController extends AbstractController
      * @param Request $request
      * @param CountryRepository $countryRepository
      * @param PublicHolidayRepository $publicHolidayRepository
+     * @param DailyCountryChecksOnRequestRepository $dailyCountryChecksOnRequestRepository
      * @return Response
-     * @throws TransportExceptionInterface
+     * @throws Exception
      */
     public function index(Request $request, CountryRepository $countryRepository,
-                          PublicHolidayRepository $publicHolidayRepository): Response
+                          PublicHolidayRepository $publicHolidayRepository,
+                          DailyCountryChecksOnRequestRepository $dailyCountryChecksOnRequestRepository): Response
     {
-        $publicHolidayFilterResult = [
-            'public_holidays' => '',
-            'total_amount_of_public_holidays' => '',
-            'status' => '',
-            'max_number_of_free_days' => '',
-        ];
         $entityManager = $this->getDoctrine()->getManager();
+        $makeApiRequest = new MakeApiRequest();
         $isCountryTableHasData = $countryRepository->findBy(array(), null, 1);
 
         ///////////////////////////////////////////////////////
         // Add countries in API to Country table if it is empty
         ///////////////////////////////////////////////////////
         if (!$isCountryTableHasData) {
-            $content = [];
-            $response = $this->client->request(
-                'GET',
-                'https://kayaposoft.com/enrico/json/v2.0/?action=getSupportedCountries'
-            );
-
-            try {
-                $content = $response->toArray();
-            } catch (ClientExceptionInterface $e) {
-            } catch (DecodingExceptionInterface $e) {
-            } catch (RedirectionExceptionInterface $e) {
-            } catch (ServerExceptionInterface $e) {
-            } catch (TransportExceptionInterface $e) {
-            }
+            $content = $makeApiRequest->getSupportedCountries($this->client);
 
             foreach ($content as $countryData) {
                 $country = new Country();
@@ -87,11 +71,42 @@ class PublicHolidaysController extends AbstractController
         ///////////////////////////////////////////////////////
         if ($form->isSubmitted() && $form->isValid()) {
 
-            $content = [];
             $formData = $form->getData();
 
             ///////////////////////////////////////////////////////
-            // Check if data already exists in db
+            // Check if country status already exists in db for today
+            ///////////////////////////////////////////////////////
+            $currentDate = date('d-m-Y');
+
+            if ($dailyCountryChecksData = $dailyCountryChecksOnRequestRepository->findOneBy([
+                'country' => $formData['country']->getId(),
+                'updated_on' => new DateTime($currentDate),
+            ])) {
+                $typeOfDay = $dailyCountryChecksData->getTypeOfDay();
+            } else {
+                ///////////////////////////////////////////////////////
+                // Update entity if it exists
+                ///////////////////////////////////////////////////////
+                $countryData = $countryRepository->findOneBy(['id' => $formData['country']->getId()]);
+                $countryCode = $countryData->getCountryCode();
+                $typeOfDay = $makeApiRequest->getTypeOfDay($this->client, $countryCode);
+                $dailyCountryChecksOnRequest = $dailyCountryChecksOnRequestRepository->findOneBy([
+                    'country' => $formData['country']->getId(),
+                ]);
+
+                if (!$dailyCountryChecksOnRequest) {
+                    $dailyCountryChecksOnRequest = new DailyCountryChecksOnRequest();
+                    $dailyCountryChecksOnRequest->setCountry($formData['country']);
+                }
+
+                $dailyCountryChecksOnRequest->setTypeOfDay($typeOfDay);
+                $dailyCountryChecksOnRequest->setUpdatedOn(new DateTime($currentDate));
+
+                $entityManager->persist($dailyCountryChecksOnRequest);
+                $entityManager->flush();
+            }
+            ///////////////////////////////////////////////////////
+            // Check if holiday data already exists in db
             ///////////////////////////////////////////////////////
             if ($publicHolidayData = $publicHolidayRepository->findOneBy([
                 'country' => $formData['country']->getId(),
@@ -105,7 +120,7 @@ class PublicHolidaysController extends AbstractController
                 $publicHolidayFilterResult = [
                     'public_holidays' => $publicHolidaysMonthDay,
                     'total_amount_of_public_holidays' => $totalAmountOfPublicHolidays,
-                    'status' => '',
+                    'status' => $typeOfDay,
                     'max_number_of_free_days' => $maxFreeDaysInARow,
                 ];
 
@@ -125,20 +140,7 @@ class PublicHolidaysController extends AbstractController
             // Have necessary data to make api request
             ///////////////////////////////////////////////////////
             if ($formData['year'] >= $dataAvailableFromYear && $formData['year'] <= $dataAvailableToYear) {
-                $response = $this->client->request(
-                    'GET',
-                    "https://kayaposoft.com/enrico/json/v2.0/?action=getHolidaysForYear&year={$formData['year']}
-                     &country={$countryCode}&holidayType=public_holiday"
-                );
-
-                try {
-                    $content = $response->toArray();
-                } catch (ClientExceptionInterface $e) {
-                } catch (DecodingExceptionInterface $e) {
-                } catch (RedirectionExceptionInterface $e) {
-                } catch (ServerExceptionInterface $e) {
-                } catch (TransportExceptionInterface $e) {
-                }
+                $content = $makeApiRequest->getPublicHolidaysForYear($this->client, $formData['year'], $countryCode);
 
                 ///////////////////////////////////////////////////////
                 // Insert data into public_holidays table
@@ -159,10 +161,10 @@ class PublicHolidaysController extends AbstractController
                     12 => 'dec',
                 ];
                 $totalAmountOfPublicHolidays = count($content);
-                $publicHolilday = new PublicHoliday();
-                $publicHolilday->setCountry($formData['country']);
-                $publicHolilday->setYear($formData['year']);
-                $publicHolilday->setTotalAmount($totalAmountOfPublicHolidays);
+                $publicHoliday = new PublicHoliday();
+                $publicHoliday->setCountry($formData['country']);
+                $publicHoliday->setYear($formData['year']);
+                $publicHoliday->setTotalAmount($totalAmountOfPublicHolidays);
 
                 foreach ($content as $singlePublicHoliday) {
                     $month = $singlePublicHoliday['date']['month'];
@@ -172,68 +174,42 @@ class PublicHolidaysController extends AbstractController
                     $publicHolidaysMonthDay[$mappedMonth][] = $day;
                 }
 
-                $publicHolilday->setMonthDay($publicHolidaysMonthDay);
+                $publicHoliday->setMonthDay($publicHolidaysMonthDay);
 
                 ///////////////////////////////////////////////////////
                 // Count max free days in a row in a year
                 ///////////////////////////////////////////////////////
-                $maxFreeDaysInARow = 0;
-                $currentFreeDaysInARow = 0;
+                $maxFreeDaysInARow = $makeApiRequest->getMaxFreeDaysInARowInAYear($this->client, $formData['year'], $countryCode);
 
-                // for ($monthNumber = 1; $monthNumber < 13; $monthNumber++) {
-                //     for ($dayNumber = 1; $dayNumber < 32; $dayNumber++) {
-                //         $content = [];
-                //         $response = $this->client->request(
-                //             'GET',
-                //             "https://kayaposoft.com/enrico/json/v2.0/?action=isWorkDay&date={$dayNumber}-{$monthNumber}-{$formData['year']}&country={$countryCode}"
-                //         );
+                $publicHoliday->setMaxFreeDaysInARow($maxFreeDaysInARow);
 
-                //         try {
-                //             $content = $response->toArray();
-                //         } catch (ClientExceptionInterface $e) {
-                //         } catch (DecodingExceptionInterface $e) {
-                //         } catch (RedirectionExceptionInterface $e) {
-                //         } catch (ServerExceptionInterface $e) {
-                //         } catch (TransportExceptionInterface $e) {
-                //         }
-
-                //         // Check if dayNumber is valid
-                //         if (isset($content['error'])) {
-                //             break;
-                //         }
-
-                //         if ($content['isWorkDay'] == true) {
-
-                //             if ($maxFreeDaysInARow < $currentFreeDaysInARow) {
-                //                 $maxFreeDaysInARow = $currentFreeDaysInARow;
-                //             }
-
-                //             $currentFreeDaysInARow = 0;
-                //         } else {
-                //             $currentFreeDaysInARow++;
-                //         }
-
-                //     }
-                // }
-
-                $publicHolilday->setMaxFreeDaysInARow($maxFreeDaysInARow);
-
-                $entityManager->persist($publicHolilday);
+                $entityManager->persist($publicHoliday);
                 $entityManager->flush();
 
                 $publicHolidayFilterResult = [
                     'public_holidays' => $publicHolidaysMonthDay,
                     'total_amount_of_public_holidays' => $totalAmountOfPublicHolidays,
-                    'status' => '',
+                    'status' => $typeOfDay,
                     'max_number_of_free_days' => $maxFreeDaysInARow,
                 ];
+
+                return $this->render('public_holidays/index.html.twig', [
+                    'controller_name' => 'PublicHolidaysController',
+                    'public_holiday_form' => $form->createView(),
+                    'public_holiday_filter_result' => $publicHolidayFilterResult,
+                ]);
             }
         }
 
         return $this->render('public_holidays/index.html.twig', [
             'controller_name' => 'PublicHolidaysController',
             'public_holiday_form' => $form->createView(),
-            'public_holiday_filter_result' => $publicHolidayFilterResult,
+            'public_holiday_filter_result' => [
+                'public_holidays' => '',
+                'total_amount_of_public_holidays' => '',
+                'status' => '',
+                'max_number_of_free_days' => '',
+            ],
         ]);
     }
 }
