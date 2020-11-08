@@ -1,0 +1,34 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Public holidays{% endblock %}
+
+{% block body %}
+
+    <h1>Public holidays</h1>
+
+    {{ form(public_holiday_form) }}
+
+    <table class="table">
+        <thead>
+        <tr>
+            <th>Public holidays</th>
+            <th>Total amount of public holidays</th>
+            <th>Status</th>
+            <th>Max number of free days in a row</th>
+        </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>
+                    {% for month, publicHolidaysInMonth in public_holiday_filter_result.public_holidays %}
+                        {{ month }}: {{ publicHolidaysInMonth|join(',') }}<br>
+                    {% endfor %}
+                </td>
+                <td>{{ public_holiday_filter_result.total_amount_of_public_holidays }}</td>
+                <td></td>
+                <td>{{ public_holiday_filter_result.max_number_of_free_days }}</td>
+            </tr>
+        </tbody>
+    </table>
+
+{% endblock %}
